@@ -5,11 +5,11 @@ import logging
 import subprocess
 
 
-logging.basicConfig(filename='repo_cloner.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(filename='repo_cloner.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-ALLOWED_LICENSES = (
+ALLOWED_LICENCES = (
     'MIT License',
     'MIT No Attribution',
     'Apache License 2.0',
@@ -41,8 +41,8 @@ def clone_repos(pickle_file, directory, delay):
 
     for repo_full_name, repo_details in repos.items():
         repo_license = repo_details['license'].get('name', None) if repo_details['license'] else None
-        if repo_license not in ALLOWED_LICENSES:
-            logger.info(f"{repo_full_name} licence not on allowed licenses list.")
+        if repo_license not in ALLOWED_LICENCES:
+            logger.warning(f"{repo_full_name} licence not on allowed licences list.")
             continue
         repo_dir = f'{directory}/{repo_full_name}'
         repo_name = repo_full_name.split("/")[-1]
