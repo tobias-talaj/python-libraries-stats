@@ -30,7 +30,7 @@ def process_repo(repo_dir, repo_name):
         for file in files:
             if not file.endswith((".py", ".ipynb", ".txt")):
                 os.remove(os.path.join(root, file))
-                counter+= 1
+                counter += 1
     logger.info(f"Deleted {counter} files from {repo_name}")
 
 
@@ -50,6 +50,7 @@ def clone_repos(pickle_file, directory, delay):
         if os.path.exists(repo_dir):
             logger.info(f"Repo {repo_full_name} already cloned.")
         else:
+            logger.info(f"Cloning {repo_full_name}.")
             process = subprocess.run(["git", "clone", f"https://github.com/{repo_full_name}.git", repo_dir], stderr=subprocess.PIPE)
 
             if process.returncode != 0:
@@ -63,4 +64,4 @@ def clone_repos(pickle_file, directory, delay):
 
 
 if __name__ == "__main__":
-    clone_repos("/home/tobiasz/Repos/python-libraries-stats/jupyter-notebook-repos.pickle", "/home/tobiasz/Repos/python-libraries-stats/cloned_repos", 1.5)
+    clone_repos("/home/tobiasz/Repos/python-libraries-stats/python-repos.pickle", "//media/tobiasz/crucial/cloned_repos", 1.5)
