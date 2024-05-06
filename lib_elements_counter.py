@@ -80,7 +80,7 @@ def check_node(
         case ast.Call(func=ast.Attribute(attr=func_name, value=ast.Name(id=module_name))) if func_name in components["function"] and module_name == module:
             update_df(df, code_file, module, "function", func_name)
 
-        # example_object.example_method()
+        # some_object.example_method()
         case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"]:
             update_df(df, code_file, module, "method", method_name)
 
@@ -114,10 +114,10 @@ def check_node(
         case ast.Raise(exc=ast.Call(func=ast.Attribute(value=ast.Name(id=module_name), attr=exc_name))) if exc_name in components["exception"] and module_name == module:
             update_df(df, code_file, module, "exception", exc_name)
 
-        # example_function(direct_import_function_as_an_argument, direct_import_second_function_as_an_argument)
-        # example_function(xyz.first_function_as_an_argument, xyz.second_function_as_an_argument)
-        # example_function(kwarg_a=direct_import_function_as_a_kwarg, kwarg_b=direct_import_second_function_as_a_kwarg)
-        # example_function(kwarg_a=xyz.first_function_as_a_kwarg, kwarg_b=xyz.second_function_as_a_kwarg)
+        # some_function(direct_import_function_as_an_argument, direct_import_second_function_as_an_argument)
+        # some_function(xyz.first_function_as_an_argument, xyz.second_function_as_an_argument)
+        # some_function(kwarg_a=direct_import_function_as_a_kwarg, kwarg_b=direct_import_second_function_as_a_kwarg)
+        # some_function(kwarg_a=xyz.first_function_as_a_kwarg, kwarg_b=xyz.second_function_as_a_kwarg)
         case ast.Call(args=args, keywords=keywords):
             for arg in args:
                 if isinstance(arg, ast.Name) and arg.id in components["function"] and arg.id in module_direct_imports:

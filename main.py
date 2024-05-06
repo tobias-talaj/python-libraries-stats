@@ -6,10 +6,10 @@ from lib_elements_counter import process_files_in_parallel, process_file_full_an
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--library_pickle_path", default="./api_reference_pickles/standard_library.pickle", help="Path to the pickle file containing API reference")
-    parser.add_argument("--output_parquet_path", default="./data/py_imports_python_repos.parquet", help="Path and/or the filename for the output")
-    parser.add_argument("--input_python_files_path", default="/media/tobiasz/crucial/python_repos/", help="Path to analysed repositories")
-    parser.add_argument("--mode", default="imports", choices=["full", "simple"], help="Mode of operation: 'full' for full analysis or 'imports' for filenames and imports only")
+    parser.add_argument("--library_pickle_path", default="/home/tobiasz/Repos/api-reference-scrapers/sklearn/sklearn_api_reference.pickle", help="Path to the pickle file containing API reference")
+    parser.add_argument("--output_parquet_path", default="./python_repos_analyzed.parquet", help="Path and/or the filename for the output")
+    parser.add_argument("--input_python_files_path", default="/media/tobiasz/crucial/cloned_repos/", help="Path to analysed repositories")
+    parser.add_argument("--mode", default="full", choices=["full", "simple"], help="Mode of operation: 'full' for full analysis or 'simple' for filenames and imports only")
     args = parser.parse_args()
 
     logger = setup_logger()
@@ -17,7 +17,7 @@ def main():
     print("Loading library reference...")
     lib_dict = load_library_reference(args.library_pickle_path)
     print("Updating list of Python files...")
-    code_files = find_python_files(args.input_python_files_path, filetype='.py')
+    code_files = find_python_files(args.input_python_files_path, filetype='.ipynb')
 
     if args.mode == "full":
         print("Counting library components occurrences...")
@@ -30,6 +30,7 @@ def main():
     print("Saving data to parquet...")
     concatenate_and_save(df_list, args.output_parquet_path)
     print("DONE")
+
 
 if __name__ == "__main__":
     main()

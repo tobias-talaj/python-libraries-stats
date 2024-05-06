@@ -164,3 +164,4 @@ foo.py
 foo.txt
 /cloned_repos
 *pickle
+.parquet

@@ -13,7 +13,7 @@ from xyz import direct_import_func_call, direct_import_function_as_an_argument, 
 direct_import_func_call()
 xyz.func_call()
 
-example_object.example_method()
+some_object.example_method()
 
 ExampleClass()
 xyz.AnotherClass()
@@ -31,10 +31,10 @@ except xyz.AnotherException:
 raise ExampleException()
 raise xyz.AnotherException()
 
-example_function(direct_import_function_as_an_argument, direct_import_second_function_as_an_argument)
-example_function(xyz.first_function_as_an_argument, xyz.second_function_as_an_argument)
-example_function(kwarg_a=direct_import_function_as_a_kwarg, kwarg_b=direct_import_second_function_as_a_kwarg)
-example_function(kwarg_a=xyz.first_function_as_a_kwarg, kwarg_b=xyz.second_function_as_a_kwarg)
+some_function(direct_import_function_as_an_argument, direct_import_second_function_as_an_argument)
+some_function(xyz.first_function_as_an_argument, xyz.second_function_as_an_argument)
+some_function(kwarg_a=direct_import_function_as_a_kwarg, kwarg_b=direct_import_second_function_as_a_kwarg)
+some_function(kwarg_a=xyz.first_function_as_a_kwarg, kwarg_b=xyz.second_function_as_a_kwarg)
 """
 
 test_lib_api = {
