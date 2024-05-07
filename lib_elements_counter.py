@@ -10,24 +10,27 @@ import pandas as pd
 from utils import convert_notebook_to_python
 
 
-def get_imported_modules(
+def get_imported_libs(
         tree: ast.AST,
+        consolidate_imports: bool = True,
         max_depth: int = 2
+        
 ) -> Tuple[Set[str], Dict[str, str]]:
     """
     Traverses the AST up to a maximum depth and identifies all import statements,
-    returning a set of imported module names and directly imported components.
+    returning a set of imported library names and directly imported components.
 
     Parameters:
     tree: The root of the Abstract Syntax Tree (AST).
+    consolidate_imports: Consolidates all module imports into one library import e.g. sklearn.linear_model and sklearn become just sklearn.
     max_depth: The maximum depth to traverse in the AST.
 
     Returns:
     A tuple containing:
-    - A set of strings, each string being the name of an imported module.
-    - A dictionary mapping directly imported component names to their module names.
+    - A set of strings, each string being the name of an imported library.
+    - A dictionary mapping directly imported component names to their library names.
     """
-    imported_modules = set()
+    imported_libs = set()
     direct_imports = defaultdict(set)
 
     def walk_tree(node, depth=0):
@@ -36,16 +39,46 @@ def get_imported_modules(
 
         match node:
             case ast.Import(names=names):
-                imported_modules.update(n.name for n in names)
-            case ast.ImportFrom(module=module_name, names=names, level=0):
-                imported_modules.add(module_name)
-                direct_imports[module_name].update(n.name for n in names)
+                lib_names = [n.name.split('.')[0] if consolidate_imports else n.name for n in names]
+                imported_libs.update(lib_names)
+            case ast.ImportFrom(module=lib, names=names, level=0):
+                lib_name = lib.split('.')[0] if consolidate_imports else lib
+                imported_libs.add(lib_name)
+                direct_imports[lib_name].update(n.name for n in names)
 
         for child in ast.iter_child_nodes(node):
             walk_tree(child, depth + 1)
 
     walk_tree(tree)
-    return imported_modules, direct_imports
+    return imported_libs, direct_imports
+
+
+def get_object_names(tree: ast.AST, classes: Set[str]) -> Set[str]:
+    """
+    Traverses the AST and identifies object names of given classes.
+
+    Parameters:
+    tree: The root of the Abstract Syntax Tree (AST).
+    classes: Collection of strings with class names.
+
+    Returns:
+    A set of strings, each string being the name of a class instantiation.
+    """
+    object_names = set()
+    def walk_tree(node, classes):
+        match node:
+            case ast.Assign(value=object_instantiation) if any(c in [w.replace('()', '') for w in ast.unparse(object_instantiation).split('.')] for c in classes):
+                object_names.add(node.targets[0].id)
+        for child in ast.iter_child_nodes(node):
+            walk_tree(child, classes)
+    walk_tree(tree, classes)
+    walk_tree(tree, object_names)
+    return object_names
+
+
+def get_expression_elements(node):
+    unparsed = ast.unparse(node)
+    return unparsed.replace('()', '').split('.')
 
 
 def check_node(
@@ -54,7 +87,8 @@ def check_node(
         df: pd.DataFrame,
         code_file: str,
         module: str,
-        module_direct_imports: Dict[str, str]
+        module_direct_imports: Dict[str, str],
+        object_names: List[str]
 ) -> None:
     """
     Checks if the node represents any of the library components
@@ -73,51 +107,39 @@ def check_node(
     None
     """
     match node:
-        # direct_import_func_call()
         case ast.Call(func=ast.Name(id=func_name)) if func_name in components["function"] and func_name in module_direct_imports:
             update_df(df, code_file, module, "function", func_name)
-        # xyz.func_call()
         case ast.Call(func=ast.Attribute(attr=func_name, value=ast.Name(id=module_name))) if func_name in components["function"] and module_name == module:
             update_df(df, code_file, module, "function", func_name)
 
-        # some_object.example_method()
-        case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"]:
+        case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"] and any(o in get_expression_elements(node) for o in object_names):
+            update_df(df, code_file, module, "method", method_name)
+        case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"] and any(c in get_expression_elements(node) for c in components["class"]):
+            update_df(df, code_file, module, "method", method_name)
+        case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"] and module == get_expression_elements(node)[0]:
             update_df(df, code_file, module, "method", method_name)
 
-        # ExampleClass()
         case ast.Call(func=ast.Name(id=class_name)) if class_name in components["class"] and class_name in module_direct_imports:
             update_df(df, code_file, module, "class", class_name)
-        # xyz.AnotherClass()
         case ast.Call(func=ast.Attribute(value=ast.Name(id=module_name), attr=class_name)) if class_name in components["class"] and module_name == module:
             update_df(df, code_file, module, "class", class_name)
 
-        # some_object.example_attribute
-        case ast.Attribute(attr=attr_name) if attr_name in components["attribute"]:
+        case ast.Attribute(attr=attr_name) if attr_name in components["attribute"] and any(o in get_expression_elements(node) for o in object_names):
+            update_df(df, code_file, module, "attribute", attr_name)
+        case ast.Attribute(attr=attr_name) if attr_name in components["attribute"] and any(c in get_expression_elements(node) for c in components["class"]):
+            update_df(df, code_file, module, "attribute", attr_name)
+        case ast.Attribute(attr=attr_name) if attr_name in components["attribute"] and module == get_expression_elements(node)[0]:
             update_df(df, code_file, module, "attribute", attr_name)
             
-        # try:
-        #     some_function()
-        # except ExampleException:
-        #     pass
         case ast.ExceptHandler(type=ast.Name(id=exc_name)) if exc_name in components["exception"] and exc_name in module_direct_imports:
             update_df(df, code_file, module, "exception", exc_name)
-        # try:
-        #     some_function()
-        # except xyz.AnotherException:
-        #     pass
         case ast.ExceptHandler(type=ast.Attribute(value=ast.Name(id=module_name), attr=exc_name)) if exc_name in components["exception"] and module_name == module:
             update_df(df, code_file, module, "exception", exc_name)
-        # raise ExampleException()
         case ast.Raise(exc=ast.Call(func=ast.Name(id=exc_name))) if exc_name in components["exception"] and exc_name in module_direct_imports:
             update_df(df, code_file, module, "exception", exc_name)
-        # raise xyz.AnotherException()
         case ast.Raise(exc=ast.Call(func=ast.Attribute(value=ast.Name(id=module_name), attr=exc_name))) if exc_name in components["exception"] and module_name == module:
             update_df(df, code_file, module, "exception", exc_name)
 
-        # some_function(direct_import_function_as_an_argument, direct_import_second_function_as_an_argument)
-        # some_function(xyz.first_function_as_an_argument, xyz.second_function_as_an_argument)
-        # some_function(kwarg_a=direct_import_function_as_a_kwarg, kwarg_b=direct_import_second_function_as_a_kwarg)
-        # some_function(kwarg_a=xyz.first_function_as_a_kwarg, kwarg_b=xyz.second_function_as_a_kwarg)
         case ast.Call(args=args, keywords=keywords):
             for arg in args:
                 if isinstance(arg, ast.Name) and arg.id in components["function"] and arg.id in module_direct_imports:
@@ -206,17 +228,20 @@ def process_file_full_analysis(
         return pd.DataFrame(columns=columns)
     
     if code_file.endswith('.ipynb'):
+        logger.debug(f"Trying to convert {code_file}")
         code = convert_notebook_to_python(code, logger)
 
     try:
         tree = ast.parse(code)
-        imported_modules, direct_imports = get_imported_modules(tree)
-
-        for node in ast.walk(tree):
-            for module, components in lib_dict.items():
+        imported_modules, direct_imports = get_imported_libs(tree)
+        
+        for module, components in lib_dict.items():
+            object_names = get_object_names(tree, components['class'])
+            for node in ast.walk(tree):
                 if module not in imported_modules:
                     continue
-                check_node(node, components, df, code_file, module, direct_imports[module])
+                check_node(node, components, df, code_file, module, direct_imports[module], object_names, logger)
+        logger.debug(f"Successfully analyzed {code_file}. Dataframe: \n{df}")
         return df
     except SyntaxError as e:
         logger.error(f"Syntax error parsing file {code_file}: {e}")
@@ -255,7 +280,7 @@ def process_file_simple_analysis(
 
     try:
         tree = ast.parse(code)
-        imported_modules, _ = get_imported_modules(tree)
+        imported_modules, _ = get_imported_libs(tree)
 
         for module in imported_modules:
             new_row = {'filename': code_file, 'module': module}

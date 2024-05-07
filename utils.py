@@ -1,4 +1,5 @@
 import os
+import ast
 import pickle
 import logging
 import warnings
@@ -9,9 +10,9 @@ from typing import List, Tuple, Dict
 
 def setup_logger():
     logger = logging.getLogger('python_repo_analysis')
-    logger.setLevel(logging.ERROR)
+    logger.setLevel(logging.DEBUG)
     file_handler = logging.FileHandler('errors.log', mode='w')
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter('%(asctime)s - %(funcName)s - %(name)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(formatter)
     if not logger.hasHandlers():
         logger.addHandler(file_handler)
@@ -61,7 +62,8 @@ def convert_notebook_to_python(
         logger: logging.Logger
 ) -> str:
     """
-    Convert a Jupyter Notebook (.ipynb) JSON string to a Python script.
+    Convert a Jupyter Notebook (.ipynb) JSON string to a Python script, 
+    excluding cells with syntax errors and lines starting with '%%'.
 
     Parameters:
     notebook_json: The Jupyter Notebook JSON string to be converted.
@@ -76,8 +78,24 @@ def convert_notebook_to_python(
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
             notebook_node = nbformat.reads(notebook_json, as_version=4)
+            valid_cells = []
+            for cell in notebook_node.cells:
+                if cell.cell_type == 'code':
+                    filtered_source = '\n'.join(line for line in cell.source.splitlines() 
+                                                if not (line.strip().startswith('%') or line.strip().startswith('!')))
+                    try:
+                        cell.source = filtered_source
+                        ast.parse(filtered_source)
+                        valid_cells.append(cell)
+                    except SyntaxError:
+                        logger.warning(f"Skipping cell with syntax error: {cell.source}")
+                    except Exception as e:
+                        logger.error(f"Cannot format notebook cell: {e}")
+                else:
+                    valid_cells.append(cell)
+            valid_notebook = nbformat.v4.new_notebook(cells=valid_cells)
             exporter = PythonExporter()
-            python_script, _ = exporter.from_notebook_node(notebook_node)
+            python_script, _ = exporter.from_notebook_node(valid_notebook)
     except Exception as e:
         logger.error(f"Couldn't convert notebook to python: {e}")
 

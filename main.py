@@ -8,7 +8,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--library_pickle_path", default="/home/tobiasz/Repos/api-reference-scrapers/sklearn/sklearn_api_reference.pickle", help="Path to the pickle file containing API reference")
     parser.add_argument("--output_parquet_path", default="./python_repos_analyzed.parquet", help="Path and/or the filename for the output")
-    parser.add_argument("--input_python_files_path", default="/media/tobiasz/crucial/cloned_repos/", help="Path to analysed repositories")
+    parser.add_argument("--input_python_files_path", default="/media/tobiasz/crucial/cloned_repos/Azure/azureml-examples/sdk/python/responsible-ai/tabular/", help="Path to analysed repositories")
     parser.add_argument("--mode", default="full", choices=["full", "simple"], help="Mode of operation: 'full' for full analysis or 'simple' for filenames and imports only")
     args = parser.parse_args()
 
