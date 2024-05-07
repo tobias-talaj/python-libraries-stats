@@ -12,7 +12,7 @@ def main():
     parser.add_argument("--mode", default="full", choices=["full", "simple"], help="Mode of operation: 'full' for full analysis or 'simple' for filenames and imports only")
     args = parser.parse_args()
 
-    logger = setup_logger()
+    logger = setup_logger('sklearn_ipynb')
 
     print("Loading library reference...")
     lib_dict = load_library_reference(args.library_pickle_path)

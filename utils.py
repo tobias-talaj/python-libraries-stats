@@ -8,10 +8,10 @@ from nbconvert import PythonExporter
 from typing import List, Tuple, Dict
 
 
-def setup_logger():
-    logger = logging.getLogger('python_repo_analysis')
-    logger.setLevel(logging.DEBUG)
-    file_handler = logging.FileHandler('errors.log', mode='w')
+def setup_logger(logger_name, level=logging.ERROR):
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(level)
+    file_handler = logging.FileHandler(f'{logger_name}.log', mode='w')
     formatter = logging.Formatter('%(asctime)s - %(funcName)s - %(name)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(formatter)
     if not logger.hasHandlers():

@@ -228,10 +228,11 @@ def process_file_full_analysis(
         return pd.DataFrame(columns=columns)
     
     if code_file.endswith('.ipynb'):
-        logger.debug(f"Trying to convert {code_file}")
+        logger.debug(f"Trying to convert {code_file} to regular Python file.")
         code = convert_notebook_to_python(code, logger)
 
     try:
+        logger.debug(f"Analyzing {code_file}.")
         tree = ast.parse(code)
         imported_modules, direct_imports = get_imported_libs(tree)
         
@@ -317,7 +318,6 @@ def process_files_in_parallel(
     with Pool() as pool:
         results = pool.map(process_file_partial, code_files)
     print(f'Number of DataFrames: {len(results)}')
-    print(f'Shape of first DataFrame: {results[0].shape if results else "No DataFrames"}')
     return [df for df in results if not df.empty]
 
 
