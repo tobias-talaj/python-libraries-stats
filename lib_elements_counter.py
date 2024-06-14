@@ -10,12 +10,7 @@ import pandas as pd
 from utils import convert_notebook_to_python
 
 
-def get_imported_libs(
-        tree: ast.AST,
-        consolidate_imports: bool = True,
-        max_depth: int = 2
-        
-) -> Tuple[Set[str], Dict[str, str]]:
+def get_imported_libs(tree: ast.AST, consolidate_imports: bool = True, max_depth: int = 2) -> Tuple[Set[str], Dict[str, str]]:
     """
     Traverses the AST up to a maximum depth and identifies all import statements,
     returning a set of imported library names and directly imported components.
@@ -53,6 +48,23 @@ def get_imported_libs(
     return imported_libs, direct_imports
 
 
+def remove_parentheses(text: str) -> str:
+    """Removes parentheses with its contents."""
+    stack = []
+    result = []
+    
+    for char in text:
+        if char == '(':
+            stack.append(len(result))
+        elif char == ')' and stack:
+            start = stack.pop()
+            result = result[:start]
+        elif not stack:
+            result.append(char)
+    
+    return ''.join(result)
+
+
 def get_object_names(tree: ast.AST, classes: Set[str]) -> Set[str]:
     """
     Traverses the AST and identifies object names of given classes.
@@ -67,7 +79,7 @@ def get_object_names(tree: ast.AST, classes: Set[str]) -> Set[str]:
     object_names = set()
     def walk_tree(node, classes):
         match node:
-            case ast.Assign(value=object_instantiation) if any(c in [w.replace('()', '') for w in ast.unparse(object_instantiation).split('.')] for c in classes):
+            case ast.Assign(value=object_instantiation) if any(c in [remove_parentheses(w) for w in ast.unparse(object_instantiation).split('.')] for c in classes):
                 object_names.add(node.targets[0].id)
         for child in ast.iter_child_nodes(node):
             walk_tree(child, classes)
@@ -81,15 +93,7 @@ def get_expression_elements(node):
     return unparsed.replace('()', '').split('.')
 
 
-def check_node(
-        node: ast.AST,
-        components: Dict[str, List[str]],
-        df: pd.DataFrame,
-        code_file: str,
-        module: str,
-        module_direct_imports: Dict[str, str],
-        object_names: List[str]
-) -> None:
+def check_node(node: ast.AST, components: Dict[str, List[str]], df: pd.DataFrame, code_file: str, module: str, module_direct_imports: Set[str], object_names: List[str]) -> None:
     """
     Checks if the node represents any of the library components
     (functions, methods, classes instatiations, attributes, and exceptions).
@@ -101,7 +105,7 @@ def check_node(
     df: A DataFrame object for storing counts of library components.
     code_file: The path to the Python file being processed.
     module: The name of the library which components are being checked.
-    module_direct_imports: A dictionary mapping directly imported component names to their module names.
+    module_direct_imports: A set of directly imported component names.
 
     Returns:
     None
@@ -109,7 +113,7 @@ def check_node(
     match node:
         case ast.Call(func=ast.Name(id=func_name)) if func_name in components["function"] and func_name in module_direct_imports:
             update_df(df, code_file, module, "function", func_name)
-        case ast.Call(func=ast.Attribute(attr=func_name, value=ast.Name(id=module_name))) if func_name in components["function"] and module_name == module:
+        case ast.Call(func=ast.Attribute(attr=func_name, value=ast.Name(id=module_name))) if func_name in components["function"] and (module_name == module or module_name in components["module"]):
             update_df(df, code_file, module, "function", func_name)
 
         case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"] and any(o in get_expression_elements(node) for o in object_names):
@@ -121,7 +125,7 @@ def check_node(
 
         case ast.Call(func=ast.Name(id=class_name)) if class_name in components["class"] and class_name in module_direct_imports:
             update_df(df, code_file, module, "class", class_name)
-        case ast.Call(func=ast.Attribute(value=ast.Name(id=module_name), attr=class_name)) if class_name in components["class"] and module_name == module:
+        case ast.Call(func=ast.Attribute(value=ast.Name(id=module_name), attr=class_name)) if class_name in components["class"] and (module_name == module or module_name in components["module"]):
             update_df(df, code_file, module, "class", class_name)
 
         case ast.Attribute(attr=attr_name) if attr_name in components["attribute"] and any(o in get_expression_elements(node) for o in object_names):
@@ -159,13 +163,7 @@ def check_node(
                         update_df(df, code_file, module, "function", func_name)
 
 
-def update_df(
-        df: pd.DataFrame,
-        code_file: str,
-        module: str,
-        component_type: str,
-        component_name: str
-) -> None:
+def update_df(df: pd.DataFrame, code_file: str, module: str, component_type: str, component_name: str) -> None:
     """
     Checks whether a row for given code file, module, component type and component name already exists.
     If it does, the count in that row is incremented. 
@@ -197,16 +195,15 @@ def update_df(
                (df['component_type'] == component_type) & 
                (df['component_name'] == component_name), 'count'] += 1
     else:
-        new_row = {'filename': code_file, 'module': module, 'component_type': component_type, 
-                   'component_name': component_name, 'count': 1}
+        new_row = {'filename': code_file,
+                   'module': module,
+                   'component_type': component_type,
+                   'component_name': component_name,
+                   'count': 1}
         df.loc[len(df)] = new_row
 
 
-def process_file_full_analysis(
-        logger: logging.Logger,
-        lib_dict: Dict,
-        code_file: str,
-) -> pd.DataFrame:
+def process_file_full_analysis(logger: logging.Logger, lib_dict: Dict, code_file: str) -> pd.DataFrame:
     """
     Process a single file, returning a DataFrame with counts of library components.
 
@@ -241,7 +238,7 @@ def process_file_full_analysis(
             for node in ast.walk(tree):
                 if module not in imported_modules:
                     continue
-                check_node(node, components, df, code_file, module, direct_imports[module], object_names, logger)
+                check_node(node, components, df, code_file, module, direct_imports[module], object_names)
         logger.debug(f"Successfully analyzed {code_file}. Dataframe: \n{df}")
         return df
     except SyntaxError as e:
@@ -252,11 +249,7 @@ def process_file_full_analysis(
         return pd.DataFrame(columns=columns)
     
 
-def process_file_simple_analysis(
-        logger: logging.Logger,
-        code_file: str,
-        _
-) -> pd.DataFrame:
+def process_file_simple_analysis(logger: logging.Logger, code_file: str, _) -> pd.DataFrame:
     """
     Process a single file, returning a DataFrame with imported modules.
 
@@ -295,12 +288,7 @@ def process_file_simple_analysis(
         return pd.DataFrame(columns=columns)
 
 
-def process_files_in_parallel(
-        process_file_func: Callable[[logging.Logger, Dict, str, str], pd.DataFrame],
-        lib_dict: Dict,
-        code_files: List[str],
-        logger: logging.Logger
-) -> List[pd.DataFrame]:
+def process_files_in_parallel(process_file_func: Callable[[logging.Logger, Dict, str, str], pd.DataFrame], lib_dict: Dict, code_files: List[str], logger: logging.Logger) -> List[pd.DataFrame]:
     """
     Process given files in parallel, returning a list of DataFrames.
 
@@ -321,10 +309,7 @@ def process_files_in_parallel(
     return [df for df in results if not df.empty]
 
 
-def concatenate_and_save(
-        df_list: List[pd.DataFrame],
-        output_file: str
-) -> None:
+def concatenate_and_save(df_list: List[pd.DataFrame], output_file: str) -> None:
     """
     Concatenate given list of DataFrames and save the results to a parquet file.
 
