@@ -76,6 +76,7 @@ def get_expression_elements(node: ast.AST) -> List[str]:
 def get_object_names(tree: ast.AST, classes: Set[str]) -> Set[str]:
     """
     Traverses the AST and identifies object names of given classes.
+    Goes two levels deep, that means b = A(); c = b.foo() will give {b, c}.
 
     Parameters:
     tree: The root of the Abstract Syntax Tree (AST).
@@ -87,9 +88,13 @@ def get_object_names(tree: ast.AST, classes: Set[str]) -> Set[str]:
     object_names = set()
     def walk_tree(node, classes):
         match node:
-            case ast.Assign(targets=targets, value=object_instantiation) if isinstance(targets[0], ast.Tuple) and any(c in get_expression_elements(object_instantiation) for c in classes):
+            case ast.Assign(targets=targets, value=object_instantiation)\
+                if isinstance(targets[0], ast.Tuple)\
+                and any(c in get_expression_elements(object_instantiation) for c in classes):
                 object_names.update([e.id for e in node.targets[0].elts])
-            case ast.Assign(value=object_instantiation) if isinstance(targets[0], ast.Name) and any(c in get_expression_elements(object_instantiation) for c in classes):
+            case ast.Assign(value=object_instantiation)\
+                if isinstance(targets[0], ast.Name)\
+                and any(c in get_expression_elements(object_instantiation) for c in classes):
                 object_names.add(node.targets[0].id)
         for child in ast.iter_child_nodes(node):
             walk_tree(child, classes)
@@ -98,10 +103,18 @@ def get_object_names(tree: ast.AST, classes: Set[str]) -> Set[str]:
     return object_names
 
 
-def check_node(node: ast.AST, components: Dict[str, List[str]], df: pd.DataFrame, code_file: str, module: str, module_direct_imports: Set[str], object_names: List[str], module_aliases: Set) -> None:
+def check_node(
+    node: ast.AST, 
+    components: Dict[str, List[str]], 
+    df: pd.DataFrame, 
+    code_file: str, 
+    library: str, 
+    library_direct_imports: Set[str], 
+    object_names: List[str], 
+    library_aliases: Set[str]
+) -> None:
     """
-    Checks if the node represents any of the library components
-    (functions, methods, classes instatiations, attributes, and exceptions).
+    Checks if the node represents any of the library components (functions, methods, classes instatiations, attributes, and exceptions).
     If it does, it updates the given DataFrame with the component's count.
 
     Parameters:
@@ -109,72 +122,106 @@ def check_node(node: ast.AST, components: Dict[str, List[str]], df: pd.DataFrame
     components: A dict containing API reference of a given library.
     df: A DataFrame object for storing counts of library components.
     code_file: The path to the Python file being processed.
-    module: The name of the library which components are being checked.
-    module_direct_imports: A set of directly imported component names.
+    library: The name of the library which components are being checked.
+    library_direct_imports: A set of directly imported component names.
+    library_aliases: A set of aliases for given library and its modules.
+
 
     Returns:
     None
     """
     match node:
-        case ast.Call(func=ast.Name(id=func_name)) if func_name in components["function"] and func_name in module_direct_imports:
-            update_df(df, code_file, module, "function", func_name)
-        case ast.Call(func=ast.Attribute(attr=func_name, value=ast.Name(id=module_name))) if func_name in components["function"] and (module_name == module or module_name in components["module"] or module_name in module_aliases):
-            update_df(df, code_file, module, "function", func_name)
+        case ast.Call(func=ast.Name(id=func_name))\
+            if func_name in components["function"]\
+            and func_name in library_direct_imports:
+            update_df(df, code_file, library, "function", func_name)
+        case ast.Call(func=ast.Attribute(attr=func_name, value=ast.Name(id=library_name)))\
+            if func_name in components["function"]\
+            and (library_name == library or library_name in components["module"] or library_name in library_aliases):
+            update_df(df, code_file, library, "function", func_name)
 
-        case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"] and any(o in get_expression_elements(node) for o in object_names):
-            update_df(df, code_file, module, "method", method_name)
-        case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"] and any(c in get_expression_elements(node) for c in components["class"]):
-            update_df(df, code_file, module, "method", method_name)
-        case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"] and any(a in get_expression_elements(node) for a in module_aliases):
-            update_df(df, code_file, module, "method", method_name)
-        case ast.Call(func=ast.Attribute(attr=method_name)) if method_name in components["method"] and module == get_expression_elements(node)[0]:
-            update_df(df, code_file, module, "method", method_name)
+        case ast.Call(func=ast.Attribute(attr=method_name))\
+            if method_name in components["method"]\
+            and any(o in get_expression_elements(node) for o in object_names):
+            update_df(df, code_file, library, "method", method_name)
+        case ast.Call(func=ast.Attribute(attr=method_name))\
+            if method_name in components["method"]\
+            and any(c in get_expression_elements(node) for c in components["class"]):
+            update_df(df, code_file, library, "method", method_name)
+        case ast.Call(func=ast.Attribute(attr=method_name))\
+            if method_name in components["method"]\
+            and any(a in get_expression_elements(node) for a in library_aliases):
+            update_df(df, code_file, library, "method", method_name)
+        case ast.Call(func=ast.Attribute(attr=method_name))\
+            if method_name in components["method"]\
+            and library == get_expression_elements(node)[0]:
+            update_df(df, code_file, library, "method", method_name)
 
-        case ast.Call(func=ast.Name(id=class_name)) if class_name in components["class"] and class_name in module_direct_imports:
-            update_df(df, code_file, module, "class", class_name)
-        case ast.Call(func=ast.Attribute(value=ast.Name(id=module_name), attr=class_name)) if class_name in components["class"] and (module_name == module or module_name in components["module"] or module_name in module_aliases):
-            update_df(df, code_file, module, "class", class_name)
+        case ast.Call(func=ast.Name(id=class_name))\
+            if class_name in components["class"]\
+            and class_name in library_direct_imports:
+            update_df(df, code_file, library, "class", class_name)
+        case ast.Call(func=ast.Attribute(value=ast.Name(id=library_name), attr=class_name))\
+            if class_name in components["class"]\
+            and (library_name == library or library_name in components["module"] or library_name in library_aliases):
+            update_df(df, code_file, library, "class", class_name)
 
-        case ast.Attribute(attr=attr_name) if attr_name in components["attribute"] and any(o in get_expression_elements(node) for o in object_names):
-            update_df(df, code_file, module, "attribute", attr_name)
-        case ast.Attribute(attr=attr_name) if attr_name in components["attribute"] and any(c in get_expression_elements(node) for c in components["class"]):
-            update_df(df, code_file, module, "attribute", attr_name)
-        case ast.Attribute(attr=attr_name) if attr_name in components["attribute"] and any(a in get_expression_elements(node) for a in module_aliases):
-            update_df(df, code_file, module, "attribute", attr_name)
-        case ast.Attribute(attr=attr_name) if attr_name in components["attribute"] and module == get_expression_elements(node)[0]:
-            update_df(df, code_file, module, "attribute", attr_name)
+        case ast.Attribute(attr=attr_name)\
+            if attr_name in components["attribute"]\
+            and any(o in get_expression_elements(node) for o in object_names):
+            update_df(df, code_file, library, "attribute", attr_name)
+        case ast.Attribute(attr=attr_name)\
+            if attr_name in components["attribute"]\
+            and any(c in get_expression_elements(node) for c in components["class"]):
+            update_df(df, code_file, library, "attribute", attr_name)
+        case ast.Attribute(attr=attr_name)\
+            if attr_name in components["attribute"]\
+            and any(a in get_expression_elements(node) for a in library_aliases):
+            update_df(df, code_file, library, "attribute", attr_name)
+        case ast.Attribute(attr=attr_name)\
+            if attr_name in components["attribute"]\
+            and library == get_expression_elements(node)[0]:
+            update_df(df, code_file, library, "attribute", attr_name)
             
-        case ast.ExceptHandler(type=ast.Name(id=exc_name)) if exc_name in components["exception"] and exc_name in module_direct_imports:
-            update_df(df, code_file, module, "exception", exc_name)
-        case ast.ExceptHandler(type=ast.Attribute(value=ast.Name(id=module_name), attr=exc_name)) if exc_name in components["exception"] and module_name == module:
-            update_df(df, code_file, module, "exception", exc_name)
-        case ast.Raise(exc=ast.Call(func=ast.Name(id=exc_name))) if exc_name in components["exception"] and exc_name in module_direct_imports:
-            update_df(df, code_file, module, "exception", exc_name)
-        case ast.Raise(exc=ast.Call(func=ast.Attribute(value=ast.Name(id=module_name), attr=exc_name))) if exc_name in components["exception"] and module_name == module:
-            update_df(df, code_file, module, "exception", exc_name)
+        case ast.ExceptHandler(type=ast.Name(id=exc_name))\
+            if exc_name in components["exception"]\
+            and exc_name in library_direct_imports:
+            update_df(df, code_file, library, "exception", exc_name)
+        case ast.ExceptHandler(type=ast.Attribute(value=ast.Name(id=library_name), attr=exc_name))\
+            if exc_name in components["exception"]\
+            and library_name == library:
+            update_df(df, code_file, library, "exception", exc_name)
+        case ast.Raise(exc=ast.Call(func=ast.Name(id=exc_name)))\
+            if exc_name in components["exception"]\
+            and exc_name in library_direct_imports:
+            update_df(df, code_file, library, "exception", exc_name)
+        case ast.Raise(exc=ast.Call(func=ast.Attribute(value=ast.Name(id=library_name), attr=exc_name)))\
+            if exc_name in components["exception"]\
+            and library_name == library:
+            update_df(df, code_file, library, "exception", exc_name)
 
         case ast.Call(args=args, keywords=keywords):
             for arg in args:
-                if isinstance(arg, ast.Name) and arg.id in components["function"] and arg.id in module_direct_imports:
+                if isinstance(arg, ast.Name) and arg.id in components["function"] and arg.id in library_direct_imports:
                     func_name = arg.id
-                    update_df(df, code_file, module, "function", func_name)
-                elif isinstance(arg, ast.Attribute) and isinstance(arg.value, ast.Name) and arg.value.id == module:
+                    update_df(df, code_file, library, "function", func_name)
+                elif isinstance(arg, ast.Attribute) and isinstance(arg.value, ast.Name) and arg.value.id == library:
                     func_name = arg.attr
                     if func_name in components["function"]:
-                        update_df(df, code_file, module, "function", func_name)
+                        update_df(df, code_file, library, "function", func_name)
             for kw in keywords:
-                if isinstance(kw.value, ast.Name) and kw.value.id in components["function"] and kw.value.id in module_direct_imports:
+                if isinstance(kw.value, ast.Name) and kw.value.id in components["function"] and kw.value.id in library_direct_imports:
                     func_name = kw.value.id
-                    update_df(df, code_file, module, "function", func_name)
-                elif isinstance(kw.value, ast.Attribute) and isinstance(kw.value.value, ast.Name) and kw.value.value.id == module:
+                    update_df(df, code_file, library, "function", func_name)
+                elif isinstance(kw.value, ast.Attribute) and isinstance(kw.value.value, ast.Name) and kw.value.value.id == library:
                     func_name = kw.value.attr
                     if func_name in components["function"]:
-                        update_df(df, code_file, module, "function", func_name)
+                        update_df(df, code_file, library, "function", func_name)
 
 
-def update_df(df: pd.DataFrame, code_file: str, module: str, component_type: str, component_name: str) -> None:
+def update_df(df: pd.DataFrame, code_file: str, library: str, component_type: str, component_name: str) -> None:
     """
-    Checks whether a row for given code file, module, component type and component name already exists.
+    Checks whether a row for given code file, library, component type and component name already exists.
     If it does, the count in that row is incremented. 
     If it doesn't, a new row is added to the DataFrame with a count of 1.
 
@@ -182,12 +229,12 @@ def update_df(df: pd.DataFrame, code_file: str, module: str, component_type: str
     df: The DataFrame to be updated. 
         It has the following columns:
         - 'filename': the path to the Python file
-        - 'module': the name of the library
+        - 'library': the name of the library
         - 'component_type': the type of the component (e.g., 'function', 'class', etc.)
         - 'component_name': the name of the component
         - 'count': the count of the component
     code_file: The path to the Python file being processed.
-    module: The name of the library which components are being checked.
+    library: The name of the library which components are being checked.
     component_type: The type of the component (e.g., 'function', 'class', etc.).
     component_name: The name of the component.
 
@@ -195,17 +242,17 @@ def update_df(df: pd.DataFrame, code_file: str, module: str, component_type: str
     None
     """
     row_exists = ((df['filename'] == code_file) & 
-                  (df['module'] == module) & 
+                  (df['library'] == library) & 
                   (df['component_type'] == component_type) & 
                   (df['component_name'] == component_name)).any()
     if row_exists:
         df.loc[(df['filename'] == code_file) & 
-               (df['module'] == module) & 
+               (df['library'] == library) & 
                (df['component_type'] == component_type) & 
                (df['component_name'] == component_name), 'count'] += 1
     else:
         new_row = {'filename': code_file,
-                   'module': module,
+                   'library': library,
                    'component_type': component_type,
                    'component_name': component_name,
                    'count': 1}
@@ -224,7 +271,7 @@ def process_file_full_analysis(logger: logging.Logger, lib_dict: Dict, code_file
     Returns:
     A DataFrame containing counts of library components.
     """
-    columns = ['filename', 'module', 'component_type', 'component_name', 'count']
+    columns = ['filename', 'library', 'component_type', 'component_name', 'count']
     df = pd.DataFrame(columns=columns)
     try:
         with open(code_file, 'r', encoding='utf-8', errors='ignore') as f:
@@ -240,14 +287,14 @@ def process_file_full_analysis(logger: logging.Logger, lib_dict: Dict, code_file
     try:
         logger.debug(f"Analyzing {code_file}.")
         tree = ast.parse(code)
-        imported_modules, direct_imports, aliases = get_imported_libs(tree)
+        imported_libraries, direct_imports, aliases = get_imported_libs(tree)
         
-        for module, components in lib_dict.items():
+        for library, components in lib_dict.items():
             object_names = get_object_names(tree, components['class'])
             for node in ast.walk(tree):
-                if module not in imported_modules:
+                if library not in imported_libraries:
                     continue
-                check_node(node, components, df, code_file, module, direct_imports[module], object_names, aliases[module])
+                check_node(node, components, df, code_file, library, direct_imports[library], object_names, aliases[library])
         logger.debug(f"Successfully analyzed {code_file}. Dataframe: \n{df}")
         return df
     except SyntaxError as e:
@@ -260,16 +307,16 @@ def process_file_full_analysis(logger: logging.Logger, lib_dict: Dict, code_file
 
 def process_file_simple_analysis(logger: logging.Logger, code_file: str, _) -> pd.DataFrame:
     """
-    Process a single file, returning a DataFrame with imported modules.
+    Process a single file, returning a DataFrame with imported libraries.
 
     Parameters:
     logger: Logger object for logging messages.
     code_file: The path to the file to process.
 
     Returns:
-    A DataFrame with filenames and imported modules within the given code file.
+    A DataFrame with filenames and imported libraries within the given code file.
     """
-    columns = ['filename', 'module']
+    columns = ['filename', 'library']
     df = pd.DataFrame(columns=columns)
     try:
         with open(code_file, 'r', encoding='utf-8', errors='ignore') as f:
@@ -283,10 +330,10 @@ def process_file_simple_analysis(logger: logging.Logger, code_file: str, _) -> p
 
     try:
         tree = ast.parse(code)
-        imported_modules, _ = get_imported_libs(tree)
+        imported_libraries, _ = get_imported_libs(tree)
 
-        for module in imported_modules:
-            new_row = {'filename': code_file, 'module': module}
+        for library in imported_libraries:
+            new_row = {'filename': code_file, 'library': library}
             df.loc[len(df)] = new_row
         return df
     except SyntaxError as e:
@@ -297,7 +344,12 @@ def process_file_simple_analysis(logger: logging.Logger, code_file: str, _) -> p
         return pd.DataFrame(columns=columns)
 
 
-def process_files_in_parallel(process_file_func: Callable[[logging.Logger, Dict, str, str], pd.DataFrame], lib_dict: Dict, code_files: List[str], logger: logging.Logger) -> List[pd.DataFrame]:
+def process_files_in_parallel(
+    process_file_func: Callable[[logging.Logger, Dict, str, str], pd.DataFrame],
+    lib_dict: Dict,
+    code_files: List[str],
+    logger: logging.Logger
+) -> List[pd.DataFrame]:
     """
     Process given files in parallel, returning a list of DataFrames.
 
@@ -322,7 +374,7 @@ def concatenate_and_save(df_list: List[pd.DataFrame], output_file: str) -> None:
     """
     Concatenate given list of DataFrames and save the results to a parquet file.
 
-    If the DataFrames contain a 'count' column, the function will group by the 'filename', 'module', 
+    If the DataFrames contain a 'count' column, the function will group by the 'filename', 'library', 
     'component_type', and 'component_name' columns and sum the 'count' column. If the 'count' column 
     does not exist, the function will simply concatenate the DataFrames.
 
@@ -335,7 +387,7 @@ def concatenate_and_save(df_list: List[pd.DataFrame], output_file: str) -> None:
     """
     df_concat = pd.concat(df_list)
     if 'count' in df_concat.columns:
-        df_final = df_concat.groupby(['filename', 'module', 'component_type', 'component_name'], as_index=False).sum()
+        df_final = df_concat.groupby(['filename', 'library', 'component_type', 'component_name'], as_index=False).sum()
     else:
         df_final = df_concat
     df_final.to_parquet(output_file, engine="pyarrow")
