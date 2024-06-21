@@ -7,7 +7,7 @@ from typing import List, Dict, Tuple, Set, Callable
 
 import pandas as pd
 
-from utils import convert_notebook_to_python
+from components_counting.utils import convert_notebook_to_python
 
 
 def get_imported_libs(tree: ast.AST, consolidate_imports: bool = True, max_depth: int = 2) -> Tuple[Set[str], Dict[str, str], Dict[str, str]]:
@@ -285,17 +285,17 @@ def process_file_full_analysis(logger: logging.Logger, lib_dict: Dict, code_file
         code = convert_notebook_to_python(code, logger)
 
     try:
-        logger.debug(f"Analyzing {code_file}.")
+        logger.debug(f"Counting components {code_file}.")
         tree = ast.parse(code)
         imported_libraries, direct_imports, aliases = get_imported_libs(tree)
         
         for library, components in lib_dict.items():
+            if library not in imported_libraries:
+                continue
             object_names = get_object_names(tree, components['class'])
             for node in ast.walk(tree):
-                if library not in imported_libraries:
-                    continue
                 check_node(node, components, df, code_file, library, direct_imports[library], object_names, aliases[library])
-        logger.debug(f"Successfully analyzed {code_file}. Dataframe: \n{df}")
+        logger.debug(f"Successfully counted components in {code_file}. Dataframe: \n{df}")
         return df
     except SyntaxError as e:
         logger.error(f"Syntax error parsing file {code_file}: {e}")

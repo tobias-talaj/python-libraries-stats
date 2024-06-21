@@ -1,13 +1,13 @@
 import argparse
 
-from utils import setup_logger, find_python_files, load_library_reference
-from lib_elements_counter import process_files_in_parallel, process_file_full_analysis, process_file_simple_analysis, concatenate_and_save
+from components_counting.utils import setup_logger, find_python_files, load_library_reference
+from components_counting.lib_elements_counter import process_files_in_parallel, process_file_full_analysis, process_file_simple_analysis, concatenate_and_save
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--library_pickle_path", default="/home/tobiasz/Repos/api-reference-scrapers/sklearn/sklearn_api_reference.pickle", help="Path to the pickle file containing API reference")
-    parser.add_argument("--output_parquet_path", default="./python_repos_analyzed.parquet", help="Path and/or the filename for the output")
+    parser.add_argument("--library_pickle_path", default="./components/api_reference.pickle", help="Path to the pickle file containing API reference")
+    parser.add_argument("--output_parquet_path", default="./components_counts.parquet", help="Path and/or the filename for the output")
     parser.add_argument("--input_python_files_path", default="/media/tobiasz/crucial/cloned_repos/", help="Path to analysed repositories")
     parser.add_argument("--mode", default="full", choices=["full", "simple"], help="Mode of operation: 'full' for full analysis or 'simple' for filenames and imports only")
     args = parser.parse_args()
