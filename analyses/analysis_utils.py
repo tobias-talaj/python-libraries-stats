@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from typing import Optional
-from matplotlib.colors import LinearSegmentedColormap
+from kneed import KneeLocator
+from scipy.stats import pearsonr
 
 
 COLOR_MAP = {
@@ -114,4 +114,88 @@ def plot_component_popularity(series: pd.Series, title: str, divide_by_to_show_p
     labels = COLOR_MAP.keys()
     ax.legend(handles, labels, title='Component Type', loc='lower right', fontsize=12, title_fontsize=12, bbox_to_anchor=(0.97, 0.03))
     
+    plt.show()
+
+
+def analyze_components_correlation(df: pd.DataFrame, min_repos: int = 20, p_value_threshold: float = 0.05) -> pd.DataFrame:
+    """
+    Analyzes the correlation between component usage and repository size for components
+    that appear in a minimum number of repositories and returns the significant correlations.
+
+    Parameters:
+    df (pd.DataFrame): The input DataFrame containing the data. 
+                       Expected columns: 'repo', 'component_name', 'count', 'size'.
+    min_repos (int): Minimum number of repositories a component must appear in to be considered. Default is 20.
+    p_value_threshold (float): The p-value threshold for determining significant correlations. Default is 0.05.
+
+    Returns:
+    pd.DataFrame: A DataFrame containing significant correlations sorted by correlation coefficient in descending order.
+                  Columns: 'component_name', 'correlation', 'p_value', 'original_num_repos', 'num_usages'.
+    """
+    component_repo_count = df.groupby('component_name')['repo'].nunique()
+    filtered_components = component_repo_count[component_repo_count >= min_repos].index
+
+    pivot_df = df.pivot_table(index='repo', columns='component_name', values='count', aggfunc='sum', fill_value=0)
+    pivot_df = pivot_df.reindex(columns=filtered_components, fill_value=0).reset_index()
+    complete_df = pivot_df.melt(id_vars='repo', var_name='component_name', value_name='total_usage')
+    repo_sizes = df[['repo', 'size']].drop_duplicates()
+    complete_df = complete_df.merge(repo_sizes, on='repo', how='left')
+    complete_df.rename(columns={'size': 'repo_size'}, inplace=True)
+
+    correlations = []
+    for component in filtered_components:
+        comp_df = complete_df[complete_df['component_name'] == component]
+        if len(comp_df) > 1:
+            corr, p_value = pearsonr(comp_df['total_usage'], comp_df['repo_size'])
+            total_usages = comp_df['total_usage'].sum()
+            original_num_repos = df[df['component_name'] == component]['repo'].nunique()
+            correlations.append([component, corr, p_value, original_num_repos, total_usages])
+
+    correlation_df = pd.DataFrame(correlations, columns=['component_name', 'correlation', 'p_value', 'original_num_repos', 'num_usages'])
+    significant_correlations = correlation_df[correlation_df['p_value'] < p_value_threshold]
+    sorted_correlations = significant_correlations.sort_values(by='correlation', ascending=False)
+
+    return sorted_correlations
+
+
+def identify_elbow_components(df: pd.DataFrame, component_column: str = 'component_name', usage_column: str = 'count') -> tuple[pd.DataFrame, float, pd.DataFrame]:
+    """
+    Identifies the components to the right of the "elbow" in the Lorenz Curve.
+
+    Parameters:
+    df: DataFrame containing the data.
+    component_column: The name of the column containing component names. Default is 'component_name'.
+    usage_column: The name of the column containing usage counts. Default is 'count'.
+
+    Returns:
+    elbow_components: DataFrame of components to the right of the elbow point.
+    elbow_index: The index of the elbow point.
+    """
+    component_usage = df.groupby(component_column)[usage_column].sum().reset_index()
+    component_usage = component_usage.sort_values(by=usage_column)
+    component_usage['cum_components'] = np.arange(1, len(component_usage) + 1) / len(component_usage)
+    component_usage['cum_usages'] = component_usage[usage_column].cumsum() / component_usage[usage_column].sum()
+    kneedle = KneeLocator(component_usage['cum_components'], component_usage['cum_usages'], curve='convex', direction='increasing')
+    elbow_index = kneedle.elbow
+    elbow_components = component_usage[component_usage['cum_components'] > elbow_index]
+
+    return elbow_components, elbow_index, component_usage
+
+
+def plot_lorenz_curve(component_usage: pd.DataFrame, elbow_index: float) -> None:
+    """
+    Plots the Lorenz Curve for component usages and identifies the elbow point.
+
+    Parameters:
+    component_usage: DataFrame with cumulative component usage data.
+    elbow_index: The index of the elbow point.
+    """
+    plt.figure(figsize=(18, 8))
+    plt.plot(component_usage['cum_components'], component_usage['cum_usages'], marker='o', color='blue', label='Lorenz Curve')
+    plt.plot([0, 1], [0, 1], linestyle='--', color='red', label='Line of Equality')
+    plt.axvline(elbow_index, color='green', linestyle='--', label='Elbow Point')
+    plt.xlabel('Cumulative Percentage of Components')
+    plt.ylabel('Cumulative Percentage of Usages')
+    plt.title('Lorenz Curve of Component Usages')
+    plt.legend()
     plt.show()
