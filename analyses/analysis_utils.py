@@ -5,6 +5,7 @@ import matplotlib.colors as mcolors
 from typing import Optional
 from kneed import KneeLocator
 from scipy.stats import pearsonr
+import plotly.graph_objects as go
 
 
 COLOR_MAP = {
@@ -124,23 +125,24 @@ def analyze_components_correlation(df: pd.DataFrame, min_repos: int = 20, p_valu
 
     Parameters:
     df (pd.DataFrame): The input DataFrame containing the data. 
-                       Expected columns: 'repo', 'component_name', 'count', 'size'.
+                       Expected columns: 'repo', 'component_name', 'count', 'size', 'component_type'.
     min_repos (int): Minimum number of repositories a component must appear in to be considered. Default is 20.
     p_value_threshold (float): The p-value threshold for determining significant correlations. Default is 0.05.
 
     Returns:
     pd.DataFrame: A DataFrame containing significant correlations sorted by correlation coefficient in descending order.
-                  Columns: 'component_name', 'correlation', 'p_value', 'original_num_repos', 'num_usages'.
+                  Columns: 'component_type', 'component_name', 'correlation', 'p_value', 'original_num_repos', 'num_usages'.
     """
     component_repo_count = df.groupby('component_name')['repo'].nunique()
     filtered_components = component_repo_count[component_repo_count >= min_repos].index
-
     pivot_df = df.pivot_table(index='repo', columns='component_name', values='count', aggfunc='sum', fill_value=0)
     pivot_df = pivot_df.reindex(columns=filtered_components, fill_value=0).reset_index()
     complete_df = pivot_df.melt(id_vars='repo', var_name='component_name', value_name='total_usage')
     repo_sizes = df[['repo', 'size']].drop_duplicates()
     complete_df = complete_df.merge(repo_sizes, on='repo', how='left')
     complete_df.rename(columns={'size': 'repo_size'}, inplace=True)
+    component_types = df[['component_name', 'component_type']].drop_duplicates()
+    complete_df = complete_df.merge(component_types, on='component_name', how='left')
 
     correlations = []
     for component in filtered_components:
@@ -149,9 +151,9 @@ def analyze_components_correlation(df: pd.DataFrame, min_repos: int = 20, p_valu
             corr, p_value = pearsonr(comp_df['total_usage'], comp_df['repo_size'])
             total_usages = comp_df['total_usage'].sum()
             original_num_repos = df[df['component_name'] == component]['repo'].nunique()
-            correlations.append([component, corr, p_value, original_num_repos, total_usages])
-
-    correlation_df = pd.DataFrame(correlations, columns=['component_name', 'correlation', 'p_value', 'original_num_repos', 'num_usages'])
+            component_type = comp_df['component_type'].iloc[0]
+            correlations.append([component_type, component, corr, p_value, original_num_repos, total_usages])
+    correlation_df = pd.DataFrame(correlations, columns=['component_type', 'component_name', 'correlation', 'p_value', 'original_num_repos', 'num_usages'])
     significant_correlations = correlation_df[correlation_df['p_value'] < p_value_threshold]
     sorted_correlations = significant_correlations.sort_values(by='correlation', ascending=False)
 
@@ -168,17 +170,18 @@ def identify_elbow_components(df: pd.DataFrame, component_column: str = 'compone
     usage_column: The name of the column containing usage counts. Default is 'count'.
 
     Returns:
-    elbow_components: DataFrame of components to the right of the elbow point.
+    elbow_components: DataFrame of components to the right of the elbow point, including component_type.
     elbow_index: The index of the elbow point.
+    component_usage: DataFrame containing cumulative components and usages for all components.
     """
-    component_usage = df.groupby(component_column)[usage_column].sum().reset_index()
+    component_usage = df.groupby(['component_type', component_column])[usage_column].sum().reset_index()
     component_usage = component_usage.sort_values(by=usage_column)
     component_usage['cum_components'] = np.arange(1, len(component_usage) + 1) / len(component_usage)
     component_usage['cum_usages'] = component_usage[usage_column].cumsum() / component_usage[usage_column].sum()
     kneedle = KneeLocator(component_usage['cum_components'], component_usage['cum_usages'], curve='convex', direction='increasing')
     elbow_index = kneedle.elbow
     elbow_components = component_usage[component_usage['cum_components'] > elbow_index]
-
+    
     return elbow_components, elbow_index, component_usage
 
 
@@ -191,11 +194,57 @@ def plot_lorenz_curve(component_usage: pd.DataFrame, elbow_index: float) -> None
     elbow_index: The index of the elbow point.
     """
     plt.figure(figsize=(18, 8))
-    plt.plot(component_usage['cum_components'], component_usage['cum_usages'], marker='o', color='blue', label='Lorenz Curve')
-    plt.plot([0, 1], [0, 1], linestyle='--', color='red', label='Line of Equality')
-    plt.axvline(elbow_index, color='green', linestyle='--', label='Elbow Point')
+    plt.plot(component_usage['cum_components'], component_usage['cum_usages'], marker='o', color=COLOR_MAP['function'], label='Lorenz Curve')
+    plt.plot([0, 1], [0, 1], linestyle='--', color=COLOR_MAP['exception'], label='Line of Equality')
+    plt.axvline(elbow_index, color=COLOR_MAP['class'], linestyle='--', label='Elbow Point')
     plt.xlabel('Cumulative Percentage of Components')
     plt.ylabel('Cumulative Percentage of Usages')
     plt.title('Lorenz Curve of Component Usages')
     plt.legend()
     plt.show()
+
+
+def create_styled_table(df: pd.DataFrame, output_filename: str = "styled_df_image.png") -> None:
+    """
+    Generate a styled table using Plotly based on a dataframe and a color mapping.
+
+    Parameters:
+    - df (pd.DataFrame): A dataframe with the columns 'component_type', 'cum_components', 'cum_usages'.
+    - output_filename (str): Path to save the output image file.
+    """
+    df = df.copy()
+    df['color'] = df['component_type'].map(COLOR_MAP)
+    df['cum_components'] = df['cum_components'].map(lambda x: f"{x:.3f}")
+    df['cum_usages'] = df['cum_usages'].map(lambda x: f"{x:.3f}")
+
+    text_colors = [
+        [
+            'white' if _luminance(COLOR_MAP[ct]) < 0.5 else 'black' 
+            for ct in df['component_type']
+        ]
+        for _ in df.columns[:-1]
+    ]
+
+    fig = go.Figure(data=[go.Table(
+        header=dict(
+            values=[f"<b>{col}</b>" for col in df.columns[:-1]],
+            fill_color='#f7f7f9',
+            font=dict(color='#333', size=12, family="Arial"),
+            align='left',
+            line_color='#f7f7f9'
+        ),
+        cells=dict(
+            values=[df[col] for col in df.columns[:-1]],
+            fill_color=[df['color']] * len(df.columns[:-1]),
+            font=dict(color=[text_colors[i] for i in range(len(df.columns[:-1]))], size=12),
+            align='left',
+            line_color=[df['color']] * len(df.columns[:-1])
+        )
+    )])
+
+    fig.update_layout(
+        height=40 + 20 * len(df),
+        margin=dict(l=5, r=5, t=5, b=5)
+    )
+    fig.write_image(output_filename)
+    fig.show()
