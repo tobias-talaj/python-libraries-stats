@@ -10,7 +10,11 @@ import pandas as pd
 from components_counting.utils import convert_notebook_to_python
 
 
-def get_imported_libs(tree: ast.AST, consolidate_imports: bool = True, max_depth: int = 2) -> Tuple[Set[str], Dict[str, str], Dict[str, str]]:
+def get_imported_libs(
+    tree: ast.AST,
+    consolidate_imports: bool = True,
+    max_depth: int = 2
+) -> Tuple[Set[str], Dict[str, str], Dict[str, str]]:
     """
     Traverses the AST up to a maximum depth and identifies all import statements,
     returning a set of imported library names and directly imported components.
@@ -134,71 +138,71 @@ def check_node(
         case ast.Call(func=ast.Name(id=func_name))\
             if func_name in components["function"]\
             and func_name in library_direct_imports:
-            update_df(df, code_file, library, "function", func_name)
+                update_df(df, code_file, library, "function", func_name)
         case ast.Call(func=ast.Attribute(attr=func_name, value=ast.Name(id=library_name)))\
             if func_name in components["function"]\
             and (library_name == library or library_name in components["module"] or library_name in library_aliases):
-            update_df(df, code_file, library, "function", func_name)
+                update_df(df, code_file, library, "function", func_name)
 
         case ast.Call(func=ast.Attribute(attr=method_name))\
             if method_name in components["method"]\
             and any(o in get_expression_elements(node) for o in object_names):
-            update_df(df, code_file, library, "method", method_name)
+                update_df(df, code_file, library, "method", method_name)
         case ast.Call(func=ast.Attribute(attr=method_name))\
             if method_name in components["method"]\
             and any(c in get_expression_elements(node) for c in components["class"]):
-            update_df(df, code_file, library, "method", method_name)
+                update_df(df, code_file, library, "method", method_name)
         case ast.Call(func=ast.Attribute(attr=method_name))\
             if method_name in components["method"]\
             and any(a in get_expression_elements(node) for a in library_aliases):
-            update_df(df, code_file, library, "method", method_name)
+                update_df(df, code_file, library, "method", method_name)
         case ast.Call(func=ast.Attribute(attr=method_name))\
             if method_name in components["method"]\
             and library == get_expression_elements(node)[0]:
-            update_df(df, code_file, library, "method", method_name)
+                update_df(df, code_file, library, "method", method_name)
 
         case ast.Call(func=ast.Name(id=class_name))\
             if class_name in components["class"]\
             and class_name in library_direct_imports:
-            update_df(df, code_file, library, "class", class_name)
+                update_df(df, code_file, library, "class", class_name)
         case ast.Call(func=ast.Attribute(value=ast.Name(id=library_name), attr=class_name))\
             if class_name in components["class"]\
             and (library_name == library or library_name in components["module"] or library_name in library_aliases):
-            update_df(df, code_file, library, "class", class_name)
+                update_df(df, code_file, library, "class", class_name)
 
         case ast.Attribute(attr=attr_name)\
             if attr_name in components["attribute"]\
             and any(o in get_expression_elements(node) for o in object_names):
-            update_df(df, code_file, library, "attribute", attr_name)
+                update_df(df, code_file, library, "attribute", attr_name)
         case ast.Attribute(attr=attr_name)\
             if attr_name in components["attribute"]\
             and any(c in get_expression_elements(node) for c in components["class"]):
-            update_df(df, code_file, library, "attribute", attr_name)
+                update_df(df, code_file, library, "attribute", attr_name)
         case ast.Attribute(attr=attr_name)\
             if attr_name in components["attribute"]\
             and any(a in get_expression_elements(node) for a in library_aliases):
-            update_df(df, code_file, library, "attribute", attr_name)
+                update_df(df, code_file, library, "attribute", attr_name)
         case ast.Attribute(attr=attr_name)\
             if attr_name in components["attribute"]\
             and library == get_expression_elements(node)[0]:
-            update_df(df, code_file, library, "attribute", attr_name)
+                update_df(df, code_file, library, "attribute", attr_name)
             
         case ast.ExceptHandler(type=ast.Name(id=exc_name))\
             if exc_name in components["exception"]\
             and exc_name in library_direct_imports:
-            update_df(df, code_file, library, "exception", exc_name)
+                update_df(df, code_file, library, "exception", exc_name)
         case ast.ExceptHandler(type=ast.Attribute(value=ast.Name(id=library_name), attr=exc_name))\
             if exc_name in components["exception"]\
             and library_name == library:
-            update_df(df, code_file, library, "exception", exc_name)
+                update_df(df, code_file, library, "exception", exc_name)
         case ast.Raise(exc=ast.Call(func=ast.Name(id=exc_name)))\
             if exc_name in components["exception"]\
             and exc_name in library_direct_imports:
-            update_df(df, code_file, library, "exception", exc_name)
+                update_df(df, code_file, library, "exception", exc_name)
         case ast.Raise(exc=ast.Call(func=ast.Attribute(value=ast.Name(id=library_name), attr=exc_name)))\
             if exc_name in components["exception"]\
             and library_name == library:
-            update_df(df, code_file, library, "exception", exc_name)
+                update_df(df, code_file, library, "exception", exc_name)
 
         case ast.Call(args=args, keywords=keywords):
             for arg in args:
